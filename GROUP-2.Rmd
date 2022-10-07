@@ -1,0 +1,450 @@
+---
+title: "Group-2"
+author: "ThokalaVamsi & PenghuaWang"
+date: "10/5/2022"
+output:
+  pdf_document:
+    highlight: tango
+    toc: yes
+    toc_depth: 3
+  html_document:
+    toc: yes
+    toc_depth: '3'
+    df_print: paged
+  word_document:
+    toc: yes
+    toc_depth: '3'
+documentclass: article
+geometry: margin = 0.8in
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,  warning = FALSE, message = FALSE)
+```
+
+
+##### Import packages
+
+```{r message=FALSE, warning=FALSE}
+#Install  missing package
+list.of.packages <- c("jtools", "MASS", "dplyr", "flexmix", "regclass","ggResidpanel", "caret","DEoptimR")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+library(jtools)
+library(MASS)
+library(flexmix)
+library(ggResidpanel)
+library(dplyr)
+library(regclass)
+library(caret)
+```
+
+##### Import data
+
+```{r}
+data <- read.csv("housingData.csv")
+#drop ID variable
+data$Id <- NULL
+#create log of the price
+data$SalePrice <- log(data$SalePrice)
+#overview
+#head(data)
+```
+
+#### Data Preparation
+
+##### Drop variables with more than 30% missing observations
+
+```{r message=FALSE, warning=FALSE}
+data <- data[colSums(is.na(data))/nrow(data) < .3]
+#new number of variables
+paste("Number of remaining variables:",length(names(data)))
+#get character variables
+cars <- unlist(lapply(data, is.character), use.names = FALSE)  
+#convert all character to factor
+data <- as.data.frame(unclass(data),stringsAsFactors=TRUE)
+#convert categorical to numeric
+data[sapply(data, is.factor)] <- data.matrix(data[sapply(data, is.factor)])
+#convert the numerical categorical variables to factor
+data[,cars] <- lapply(data[,cars] , factor)
+
+
+#Impute numerical with mean in numeric and mode in factor
+#create function to compute the mode
+
+var_mode <- function(x) {
+    ij <- unique(x)
+    ij[which.max(tabulate(match(x, ij)))]
+}
+
+
+data<- data %>% mutate_if(is.numeric, funs(replace(.,is.na(.), mean(., na.rm = TRUE)))) %>%
+  mutate_if(is.factor, funs(replace(.,is.na(.), var_mode(na.omit(.)))))
+
+
+#count remaining missing
+#colSums(is.na(data))
+
+```
+
+
+### (a) OLS Model
+
+###### Hold-out and Train data
+
+```{r}
+#hold data
+hold <- data[1:100,]
+#train
+train <- data[101:nrow(data),]
+paste("Number of observations in train data:", nrow(train),"with", ncol(train),"columns" )
+paste("Number of observations in test data:", nrow(hold),"with", ncol(hold),"columns" )
+```
+
+##### Stepwise regression model
+
+```{r}
+#full model
+model <- lm(SalePrice ~. ,data = train)
+# Stepwise regression model
+step.model <- stepAIC(model, direction = "both", 
+                      trace = FALSE)
+#summary of the model
+summ(step.model)
+```
+
+##### BIC
+
+```{r}
+BIC(step.model)
+```
+
+##### RMSE
+
+```{r}
+rmse_lm <- sqrt(mean(step.model$residuals^2))
+rmse_lm
+```
+
+##### VIF
+
+```{r}
+VIF(step.model)
+```
+
+```{r}
+lm_rsq <- round(summary(step.model)$r.squared, 5)
+paste("R-Squared:", lm_rsq)
+```
+
+
+##### Stepwise regression model after removing collinear variables
+
+```{r}
+#convert categorical to numeric
+data[sapply(data, is.factor)] <- data.matrix(data[sapply(data, is.factor)])
+#compute correlaiton
+correl <- cor(data)
+correl[!lower.tri(correl)] <- 0
+
+data.new <- 
+  data[, !apply(correl, 2, function(x) any(abs(x) > 0.7, na.rm = TRUE))]
+
+#hold data
+hold1 <- data.new[1:100,]
+#train
+train1 <- data.new[101:nrow(data.new),]
+paste("Number of observations in train data:", nrow(train1),"with", ncol(train1),"columns" )
+paste("Number of observations in test data:", nrow(hold1),"with", ncol(hold1),"columns" )
+```
+
+##### Stepwise regression model with interaction effects
+
+```{r}
+#convert categorical to numeric
+data[sapply(data, is.factor)] <- data.matrix(data[sapply(data, is.factor)])
+datax <- data
+datax$`GarageArea:PoolArea` <- datax$GarageArea*datax$PoolArea
+datax$`YearBuilt:YearRemodAdd` <- datax$YearBuilt*datax$YearRemodAdd
+datax$`BedroomAbvGr:KitchenAbvGr` <- datax$BedroomAbvGr*datax$KitchenAbvGr
+datax$`OverallQual:OverallCond` <- datax$OverallQual*datax$OverallCond
+#hold data
+hold2 <- datax[1:100,]
+#train
+train2 <- datax[101:nrow(data),]
+paste("Number of observations in train data:", nrow(train2),"with", ncol(train2),"columns" )
+paste("Number of observations in test data:", nrow(hold2),"with", ncol(hold2),"columns" )
+```
+
+```{r}
+#full model
+model2 <- lm(SalePrice ~. ,data = train2)
+# Stepwise regression model
+step.model2 <- stepAIC(model2, direction = "both", 
+                      trace = FALSE)
+#summary of the model
+summ(step.model2)
+```
+
+
+##### Report coefficient estimates, p-values, and adjusted R2 for the best model, AIC
+
+The stepwise regression model has the highest adjusted R-Squared of 0.93 and with R-Squared of 0.93, the model explains 93% of the variation in the data. However, the model with interaction effects has the lowest AIC as shown below hence the best model of the three.
+
+```{r}
+paste("AIC- Stepwise:" ,round(extractAIC(step.model)[2], 4))
+
+
+paste("AIC- Interaction Effects:" ,round(extractAIC(step.model2)[2], 4))
+```
+
+The following table shows the coefficient estimates(`Est.`), p-values (`p`), and adjusted R2 (`Adj. R^2`) for the stepwise regression model with interactions.
+
+```{r}
+#summary of the model
+summ(step.model2)
+```
+##### BIC
+
+```{r}
+BIC(step.model2)
+```
+
+##### RMSE
+
+```{r}
+rmse_lm2 <- sqrt(mean(step.model2$residuals^2))
+rmse_lm2
+```
+
+##### VIF
+
+```{r}
+VIF(step.model2)
+```
+
+```{r}
+lm_rsq2 <- round(summary(step.model2)$r.squared, 5)
+paste("R-Squared:", lm_rsq2)
+```
+
+
+#### Analysis of the residuals
+
+```{r,echo=FALSE, out.width="80%"}
+resid_panel(step.model2)
+```
+
+> Based on residual plots above, we note that the residuals tend to follow a normal distribution (from the histogram). However, there are some extreme values as shown in the index plot. This might influence our decision to conduct outliear removal before further modeling.
+
+
+### (b) PLS model to predict the log of the sale price.
+
+```{r}
+
+set.seed(1)
+plsFit1 <- train(SalePrice~., data=data, method = "pls", 
+                 tuneLength=20, metric="RMSE", 
+                 trControl=(trainControl(method="cv", number=5 
+                 )),  
+                 preProc=c("center","scale"))
+plsFit1
+```
+
+##### Chart
+
+```{r}
+plot(plsFit1)
+```
+
+
+##### Number of components and the CV RMSE estimate for the final model
+
+```{r}
+res <- plsFit1$results
+best_perf <- subset(res, res$RMSE == min(res$RMSE) )
+
+pls_perf <- best_perf[,1:3]
+
+pls_perf
+```
+
+### (c)  LASSO model to predict the log of the sale price
+
+
+```{r message=FALSE, warning=FALSE}
+# Build the model
+set.seed(1)
+lambda <- 10^seq(-3, 3, length = 50)
+lasso_caret <- train(
+  SalePrice~., data = data, method = "glmnet",
+  trControl = trainControl(method = "cv", number = 5),
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda)
+  )
+```
+
+##### Chart
+
+```{r}
+plot(lasso_caret)
+```
+
+##### Best fraction and the CV RMSE estimate for the final model
+
+```{r}
+res_lasso <- lasso_caret$results
+
+best_perf_lasso <- subset(res_lasso, res_lasso$RMSE == min(res_lasso$RMSE) )
+
+lasso_perf <- best_perf_lasso[,1:4]
+#best
+lasso_perf
+```
+
+```{r}
+# Model coefficients
+paste("Variables with non-zero coefficients with the coefficient values")
+coef(lasso_caret$finalModel, lasso_caret$bestTune$lambda)
+```
+
+
+### (d) Combination of regression models with missing value imputation
+
+#### Ridge regression
+
+
+> The data was originally imputed for missing values 
+
+
+```{r message=FALSE, warning=FALSE}
+
+set.seed(1)
+
+lambda <- 10^seq(-3, 3, length = 5)
+
+# Build the model
+set.seed(123)
+ridge <- train(
+  SalePrice~., data = data, method = "glmnet",
+  trControl = trainControl(method = "cv", number = 5),
+  tuneGrid = expand.grid(alpha = 0, lambda = lambda)
+  )
+
+
+ridge
+```
+
+```{r}
+res_ridge <- ridge$results
+
+best_perf_ridge <- subset(res_ridge, res_ridge$RMSE == min(res_ridge$RMSE) )
+
+ridge_perf <- best_perf_ridge[,1:4]
+ridge_perf
+```
+
+##### Chart 
+
+```{r}
+plot(ridge)
+```
+
+#### Elastinet
+
+```{r}
+# Build the model
+set.seed(123)
+elastic <- train(
+  SalePrice~., data = data, method = "glmnet",
+  trControl = trainControl(method = "cv", number = 5),
+  tuneLength = 10
+  )
+
+#elastic
+```
+
+
+##### Performance
+
+```{r}
+res_elastic <- elastic$results
+
+best_perf_elastic <- subset(res_elastic, res_elastic$RMSE == min(res_elastic$RMSE) )
+
+elastic_perf <- best_perf_elastic[,1:4]
+
+elastic_perf
+```
+
+#### PCR
+
+```{r}
+set.seed(1)
+pcrFit <- train(SalePrice~., data=data, method = "pcr", 
+                 tuneLength=20, metric="RMSE", 
+                 trControl=(trainControl(method="cv", number=5 
+                 )),  
+                 preProc=c("center","scale"))
+pcrFit
+```
+
+##### Chart
+
+```{r}
+plot(pcrFit)
+```
+
+##### Model performance
+
+```{r}
+res <- pcrFit$results
+best_perf <- subset(res, res$RMSE == min(res$RMSE) )
+
+pcr_perf <- best_perf[,1:3]
+
+pcr_perf
+```
+
+
+### Table for Model Comparison
+
+```{r}
+#Model
+Model <- c("OLS", "OLS", "PLS", "LASSO", "Ridge", "elasticNet", "PCR")
+
+#Notes
+notes <- c("lm- Stepwise", "lm + 2-way interactions", "caret", "caret and elasticnet","caret and elasticnet", "caret and elasticnet", "caret")
+
+#Hyperparameters
+hyps <- c("N/A", "N/A", paste("ncomp =",pls_perf$ncomp), paste("alpha=",lasso_perf$alpha, "and lambda =", round(lasso_perf$lambda,4)), paste("alpha =", ridge_perf$alpha, "and lambda =", round(ridge_perf$lambda,4)), paste("alpha =", elastic_perf$alpha, "and lambda =",                               round(elastic_perf$lambda, 4)), paste("ncomp =",pcr_perf$ncomp))
+
+#RMSE
+rmses <- c(rmse_lm, rmse_lm2, pls_perf$RMSE,lasso_perf$RMSE, ridge_perf$RMSE, elastic_perf$RMSE, pcr_perf$RMSE )
+#R-squared
+rsqs <- c(lm_rsq, lm_rsq2, pls_perf$Rsquared, lasso_perf$Rsquared, ridge_perf$Rsquared, elastic_perf$Rsquared, pcr_perf$Rsquared)
+
+#add to dataframe
+
+perf <- data.frame(Model)
+perf$Notes <- notes
+#hypeparameter
+perf$Hyperparameters <- hyps
+#RMSE
+perf$`CV RMSE` <- rmses
+#R-Squared
+perf$`CV R2` <- rsqs
+#sort by RMSE
+perf <- perf[order(perf$`CV RMSE`),]
+row.names(perf) <- NULL
+perf <- data.frame(lapply(perf, function(y) if(is.numeric(y)) round(y, 4) else y)) 
+
+knitr::kable(perf, caption = "Table 1: Summary of Model Performance with 5-fold CV")
+```
+
+
+
+
+
+
+
