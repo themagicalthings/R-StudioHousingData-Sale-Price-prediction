@@ -1,27 +1,4 @@
----
-title: "Group-2"
-author: "ThokalaVamsi & PenghuaWang"
-date: "10/5/2022"
-output:
-  pdf_document:
-    highlight: tango
-    toc: yes
-    toc_depth: 3
-  html_document:
-    toc: yes
-    toc_depth: '3'
-    df_print: paged
-  word_document:
-    toc: yes
-    toc_depth: '3'
-documentclass: article
-geometry: margin = 0.8in
-urlcolor: blue
----
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE,  warning = FALSE, message = FALSE)
-```
 
 
 ##### Import packages
